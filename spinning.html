@@ -1,0 +1,399 @@
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<style>
+	.button {
+		background:orange;color:black;padding:10px;
+	}
+	.button:hover {
+		cursor:pointer;
+		background:white;color:black;
+	}
+	.text {
+		position:absolute;
+		color:orange;
+		right:10px;
+	}
+	.nexttext {
+		color: #9b7630;
+	}
+</style>
+</head>
+<body id="body" style="background:black;margin:0;overflow:hidden;font-family:Arial;color:orange">
+<input class="button" id="load" style="position:absolute;top:25px;left:0px;width:50%;left:25%;z-index:10;" type="file" />
+<canvas id="clock" style="position:absolute;width:50%;"></canvas>
+
+<div id="infos" style="top:0px;left:50%;width:50%;position:absolute;height:100%;">
+<div id="programname" class="text" style="top:0px;display:none"></div>
+<div class="text" id="positionlabel" style="top:20px;font-size:20px;text-align:center;width:90%;margin-left:5%;display:none;">Position</div>
+<div class="text" id="position" style="top:40px;font-size:80px;font-weight:bold;text-align:center;width:90%;margin-left:5%;;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+<div class="text" id="rpmlabel" style="top:160px;font-size:20px;text-align:center;width:90%;margin-left:5%;;display:none;">Cadence</div>
+<div class="text" id="rpm" style="top:180px;font-size:80px;font-weight:bold;text-align:center;width:90%;margin-left:5%;;"></div>
+<div class="text" id="resistancelabel" style="top:300px;font-size:20px;text-align:center;width:90%;margin-left:5%;;display:none;">Résistance</div>
+<div class="text" id="resistance" style="top:320px;font-size:80px;font-weight:bold;text-align:center;width:90%;margin-left:5%;;"></div>
+<div class="text nexttext" id="suivant" style="bottom:360px;right:10px;display:none;font-size:40px;">&rarr;</div>
+<div class="text nexttext" id="nextposition" style="bottom:340px;right:10px;"></div>
+<div class="text nexttext" id="nextrpm" style="bottom:320px;right:10px;"></div>
+<div class="text nexttext" id="nextresistance" style="bottom:300px;right:10px;"></div>
+<div class="text nexttext" id="nextduration" style="bottom:280px;right:10px;"></div>
+
+<div id="start" class="button" style="position:absolute;display:none;width:40%;bottom:200px;right:30%;text-align:center;z-index:1;" onclick="startclick();">DÉMARRER</div>
+
+<br><br><br>
+<div style="position:absolute;bottom:10px;right:10px;width:100%;">
+<canvas id="ride" style="position:absolute;bottom:25px;width:100%"></canvas>
+<div class="text" id="songname" style="position:absolute;width:60%;bottom:10px;left:20%;text-align:center;font-size:1.3em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:bold;"></div>
+<div class="text" id="totaltime" style="left:0px;bottom:10px;font-size:24px;font-weight:bold;width:20%;color:blue;"></div>
+<div class="text" id="totalremaining" style="right:0px;text-align:right;bottom:10px;width:20%;font-size:24px;font-weight:bold;"></div>
+</div>
+</div>
+<script>
+	var first = null;
+	var last = null;
+	
+	var positions = {"A":"ASSIS","D":"DEBOUT","P":"PILON","S":"SQUAT","G":"AGR"};
+
+	var currentlyPlaying = null;
+	var songname = null;
+	var startedOn = null;
+	var remainingTime = 0;
+	var totalTime = 0;
+	var totalRemaining = 0;
+	var programStartedOn = 0;
+	
+	var programname = document.getElementById("programname");
+	var songname = document.getElementById("songname");
+	var position = document.getElementById("position");
+	var resistance = document.getElementById("resistance");
+	var rpm = document.getElementById("rpm");
+	
+	var suivant = document.getElementById("suivant");
+	var nextposition = document.getElementById("nextposition");
+	var nextduration = document.getElementById("nextduration");
+	var nextresistance = document.getElementById("nextresistance");
+	var nextrpm = document.getElementById("nextrpm");
+	
+	var totaltime = document.getElementById("totaltime");
+	var totalremaining = document.getElementById("totalremaining");
+	
+	function Sequence(name,parent) {
+		this.name = name;
+		this.children = new Array();
+		this.parent = parent;
+		
+		this.play = function() {
+			for (var i = 0; i < this.children.length; i++) {
+				this.children[i].play();
+			}
+		}
+		
+	}
+
+	function Interval(parent,position, duration, rpm, resistance) {
+		this.parent = parent;
+		this.position = position;
+		this.duration = duration;
+		this.resistance = resistance;
+		this.rpm = rpm;
+		this.next = null;
+		
+		totalTime += duration;
+		
+		this.play = function() {
+			playMe(this);
+		}
+		
+	}
+	
+	function playMe(interval) {
+		currentlyPlaying = interval;
+		startedOn = Date.now();
+		if (programStartedOn == 0) programStartedOn = startedOn;
+		refreshPlaylist();
+	}
+	
+	var pausedOn = 0;
+	
+	function refreshPlaylist() {
+		var currentTime = Date.now();
+		if (paused) {
+			return;
+		}
+		remainingTime =  currentlyPlaying.duration - ((currentTime - startedOn)/1000);
+		totalRemaining = totalTime - ((currentTime - programStartedOn)/1000);
+		if (totalRemaining < 0) totalRemaining = 0;
+		if (totalRemaining > totalTime) totalRemaining = totalTime;
+		if  (remainingTime <= 0 && currentlyPlaying.next) {
+			currentlyPlaying.next.play();
+		}
+		else if (remainingTime > 0) {
+			setTimeout(refreshPlaylist,10);
+		}
+		else {
+		}
+		refreshDisplay();
+	}
+	
+	function drawPieSlice(ctx,centerX, centerY, radius, startAngle, endAngle, color ){
+		ctx.fillStyle = color;
+		ctx.beginPath();
+		ctx.moveTo(centerX,centerY);
+		ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+		ctx.closePath();
+		ctx.fill();
+	}
+	
+	function refreshDisplay() {
+		programname.innerHTML = currentlyPlaying.parent.parent.name;
+		songname.innerHTML = "&#9835; <i>" + currentlyPlaying.parent.name + "</i>";
+		document.getElementById("positionlabel").style.display = "inline-block";
+		document.getElementById("rpmlabel").style.display = "inline-block";
+		position.innerHTML = "";
+		for (var i = 0; i < currentlyPlaying.position.length; i++) {
+			let pos = currentlyPlaying.position.charAt(i);
+			position.innerHTML += positions[pos];
+			if (i < currentlyPlaying.position.length - 1) position.innerHTML += "-";
+		}
+		resistance.innerHTML = currentlyPlaying.resistance;
+		rpm.innerHTML = currentlyPlaying.rpm;
+		document.getElementById("resistancelabel").style.display = "inline-block";
+		
+		if (remainingTime < 0.01) remainingTime = 0;
+		var timepassed = 2*Math.PI*(currentlyPlaying.duration - remainingTime)/currentlyPlaying.duration;
+		var c = document.getElementById("clock");
+		c.width = Math.min(window.innerWidth/2,window.innerHeight);
+		c.height = c.width;
+		if (window.innerHeight < c.height) {
+			c.height = window.innerHeight;
+			c.width = c.height;
+		}
+		if (window.innerWidth/2 < c.width) {
+			c.height = window.innerWidth/2;
+			c.width = c.height;
+		}
+		
+		c.style.height = c.height+"px";
+		c.style.width = c.height+"px";
+		var ctx = c.getContext("2d");
+		var x = c.width/2;
+		var y = c.height/2;
+
+		ctx.clearRect(0, 0, c.width, c.width);
+
+		ctx.fillStyle = "#765b26";
+		ctx.beginPath();
+		ctx.moveTo(x,y);
+		ctx.arc(x, y, c.height/2, -Math.PI/2, 3*Math.PI/2);
+		//ctx.stroke();
+		ctx.closePath();
+		ctx.fill();
+
+		ctx.fillStyle = "orange";
+		ctx.beginPath();
+		ctx.moveTo(x,y);
+		ctx.arc(x, y, c.height/2, -Math.PI/2+timepassed, 3*Math.PI/2);
+		//ctx.stroke();
+		ctx.closePath();
+		ctx.fill();
+
+		ctx.fillStyle = "black";
+		ctx.beginPath();
+		ctx.moveTo(x,y);
+		ctx.arc(x, y, c.height/3, -Math.PI/2, 3*Math.PI/2);
+		//ctx.stroke();
+		ctx.closePath();
+		ctx.fill();
+		
+		var h = c.height/3;
+		ctx.font = h+"px Arial";
+		ctx.fillStyle = "#9b7630";
+		ctx.textAlign = "center"; 
+		ctx.fillText(Math.ceil(remainingTime),x,y+h/3) 
+		
+		var minutes = Math.floor((totalTime-totalRemaining)/60);
+		var seconds = Math.floor(totalTime-totalRemaining - (minutes*60));
+		totaltime.innerHTML = (minutes<10?"0":"") + minutes + ":" + (seconds < 10?"0":"") + seconds;
+		minutes = Math.floor(totalRemaining/60);
+		seconds = Math.ceil(totalRemaining - (minutes*60));
+		totalremaining.innerHTML = (minutes < 10?"0":"") + minutes + ":" + (seconds < 10?"0":"") + seconds;
+		
+		if (currentlyPlaying.next) {
+			suivant.style.display = "inline-block";
+			nextposition.innerHTML = "Position : " + positions[currentlyPlaying.next.position];
+			nextduration.innerHTML = "Durée : " + currentlyPlaying.next.duration;
+			nextresistance.innerHTML = "Résistance : " + currentlyPlaying.next.resistance;	
+			nextrpm.innerHTML = "Cadence : " + currentlyPlaying.next.rpm;
+		}
+		else {
+			suivant.style.display = "none";
+			suivant.innerHTML = "";
+			nextposition.innerHTML = "";
+			nextduration.innerHTML = "";
+			nextresistance.innerHTML = "";
+			nextrpm.innerHTML = "";
+		}
+
+		c = document.getElementById("ride");
+		c.width = window.innerWidth/2;
+		c.height = 250;
+		ctx = c.getContext("2d");
+		ctx.clearRect(0,0,c.width,250);
+		var ipaint = first;
+		ctx.fillStyle = "blue";
+		var index = 0;
+		var moving = 5;
+		var m = new URL(window.location).searchParams.get("moving");
+		if (m) {
+			m = parseInt(m);
+			if (m > 100) m = 100;
+			if (m < 1) m = 1;
+			m = 100/m;
+			moving = m;
+		}
+		var factor = moving * window.innerWidth/(2*totalTime);
+		var factor2 = 0.01;
+		
+		if (totalTime - totalRemaining > totalTime/(2*moving)) index -= (totalTime - totalRemaining - totalTime/(2*moving));
+		if (index < -(totalTime*(moving-1)/moving)) index =  -(totalTime*(moving-1)/moving);
+		
+		while (ipaint) {
+			ctx.beginPath();
+			var ress = ipaint.resistance.split("/");
+			var avgres = parseInt(ress[0]);
+			if (ress[1]) avgres = (parseInt(ress[0])+parseInt(ress[1]))/2;
+			avgres -= 6;
+			if (avgres < 0) avgres = 1;
+			avgres = parseInt(ipaint.rpm) * Math.pow(avgres,2);
+			//console.log(index + ";" + ipaint.duration + ";" + avgres);
+			if (currentlyPlaying == ipaint) {
+				ctx.rect(index*factor,(225-(avgres*factor2)),(ipaint.duration-remainingTime)*factor,avgres*factor2);
+				ctx.closePath();
+				ctx.fill();
+				ctx.beginPath();
+				ctx.fillStyle = "orange";
+				ctx.rect((index+(ipaint.duration-remainingTime))*factor,(225-(avgres*factor2)),(remainingTime)*factor,avgres*factor2);
+			}
+			else {
+				ctx.rect(index*factor,(225-(avgres*factor2)),(ipaint.duration)*factor,avgres*factor2);				
+			}
+			ctx.closePath();
+			ctx.fill();
+			index += ipaint.duration;
+			ipaint = ipaint.next;
+		}
+
+	}
+
+	function loadSequence(sequence,parent) {
+		var newseq = new Sequence(sequence.name,parent);
+		for (var i = 0; i < sequence.children.length; i++) {
+			if (sequence.children[i].children) {
+				newseq.children.push(loadSequence(sequence.children[i],newseq));
+			}
+			else {
+				var newInterval = new Interval(newseq,sequence.children[i].position,sequence.children[i].duration,sequence.children[i].pace,sequence.children[i].resistance);
+				newseq.children.push(newInterval);
+				if (!first) first = newInterval;
+				if (last) last.next = newInterval;
+				last = newInterval;
+			}
+		}
+		return newseq;
+	}
+	
+	var list = {"name":"","children":[]};
+	
+	function load() {
+		loadSequence(list,null);
+		document.getElementById("start").style.display = "inline";
+		document.getElementById("load").style.display = "none";
+		start();
+		pause();
+	}
+	
+	function startclick() {
+		document.getElementById("load").style.display = "none";
+		document.getElementById("start").style.display = "none";
+		start();
+	}
+	
+	function start() {
+		paused = false;
+		first.play();
+	}
+	
+	window.addEventListener("keypress", keyPressed);
+	
+	function keyPressed(e) {
+		if (e.keyCode == 32) {
+			document.getElementById("load").style.display = "none";
+			document.getElementById("start").style.display = "none";
+			pause();
+		}
+	}
+	
+	function pause() {
+		paused = !paused;
+		//document.getElementById("pause").innerHTML = paused?"CONTINUER":"PAUSE";
+		if (!paused) {
+			var now = Date.now();
+			startedOn += (now - pausedOn);
+			programStartedOn += (now - pausedOn);
+			refreshPlaylist();
+		}
+		else {
+			pausedOn  = Date.now();
+		}
+		//document.getElementById("start").style.display = "inline-block";
+		//document.getElementById("pause").style.display = "none";
+	}
+
+	function parseLine(line) {
+		var sequence = {};
+		var tokens = line.split(";");
+		if (!tokens) return null;
+		sequence.name = tokens[0];
+		sequence.children = [];
+		for (var i = 1; i < tokens.length-1; i++) {
+			var inter = tokens[i].split("-");
+			var inter2 = tokens[i+1].split("-");
+			if (inter2.length < 4) break;
+			var start = parseInt(inter[0].split(":")[0])*60 + parseInt(inter[0].split(":")[1]);
+			var end = parseInt(inter2[0].split(":")[0])*60 + parseInt(inter2[0].split(":")[1]);
+			var duration = end-start;
+			sequence.children.push({"position":inter[1],"duration":duration,"pace":inter[2],"resistance":inter[3]});
+		}
+		return sequence;
+	}
+	
+	function buildlist(text) {
+		var lines = text.split("\n");
+		for (var i = 0; i < lines.length; i++) {
+			var line = parseLine(lines[i]);
+			if (line) list.children.push(line);
+		}
+		load();
+	}
+	
+	function readSingleFile(e) {
+		var file = e.target.files[0];
+		if (!file) {
+			return;
+		}
+		var reader = new FileReader();
+		reader.onload = function(e) {
+			var contents = e.target.result;
+			buildlist(contents);
+		};
+		reader.readAsText(file);
+		list.name = file.name;
+
+	}
+
+	document.getElementById('load').addEventListener('change', readSingleFile, false);
+	
+</script>
+
+
+</body>
+</html>
